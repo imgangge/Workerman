@@ -249,6 +249,13 @@ class TcpConnection extends ConnectionInterface
     public static $connections = array();
 
     /**
+     * last ping count,for heartbeat
+     *
+     * @var int
+     */
+    public $pingNotResponseCount = 0;
+
+    /**
      * Status to string.
      *
      * @var array
@@ -599,6 +606,7 @@ class TcpConnection extends ConnectionInterface
                     // Get current package length.
                     try {
                         $this->_currentPackageLength = $parser::input($this->_recvBuffer, $this);
+                        $this->pingNotResponseCount  = -1;
                     } catch (\Exception $e) {} catch (\Error $e) {}
                     // The packet length is unknown.
                     if ($this->_currentPackageLength === 0) {
