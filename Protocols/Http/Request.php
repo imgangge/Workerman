@@ -163,7 +163,8 @@ class Request
     public function cookie($name = null, $default = null)
     {
         if (!isset($this->_data['cookie'])) {
-            \parse_str(\str_replace('; ', '&', $this->header('cookie')), $this->_data['cookie']);
+            $this->_data['cookie'] = array();
+            \parse_str(\preg_replace('/; ?/', '&', $this->header('cookie', '')), $this->_data['cookie']);
         }
         if ($name === null) {
             return $this->_data['cookie'];
@@ -250,7 +251,7 @@ class Request
     public function path()
     {
         if (!isset($this->_data['path'])) {
-            $this->_data['path'] = \parse_url($this->uri(), PHP_URL_PATH);
+            $this->_data['path'] = (string)\parse_url($this->uri(), PHP_URL_PATH);
         }
         return $this->_data['path'];
     }
@@ -263,7 +264,7 @@ class Request
     public function queryString()
     {
         if (!isset($this->_data['query_string'])) {
-            $this->_data['query_string'] = \parse_url($this->uri(), PHP_URL_QUERY);
+            $this->_data['query_string'] = (string)\parse_url($this->uri(), PHP_URL_QUERY);
         }
         return $this->_data['query_string'];
     }
@@ -304,7 +305,7 @@ class Request
                 $cookie_params = \session_get_cookie_params();
                 $this->connection->__header['Set-Cookie'] = array($session_name . '=' . $sid
                     . (empty($cookie_params['domain']) ? '' : '; Domain=' . $cookie_params['domain'])
-                    . (empty($cookie_params['lifetime']) ? '' : '; Max-Age=' . ($cookie_params['lifetime'] + \time()))
+                    . (empty($cookie_params['lifetime']) ? '' : '; Max-Age=' . $cookie_params['lifetime'])
                     . (empty($cookie_params['path']) ? '' : '; Path=' . $cookie_params['path'])
                     . (empty($cookie_params['samesite']) ? '' : '; SameSite=' . $cookie_params['samesite'])
                     . (!$cookie_params['secure'] ? '' : '; Secure')
@@ -505,6 +506,7 @@ class Request
         }
         $key   = -1;
         $files = array();
+        $post_str = '';
         foreach ($boundary_data_array as $boundary_data_buffer) {
             list($boundary_header_buffer, $boundary_value) = \explode("\r\n\r\n", $boundary_data_buffer, 2);
             // Remove \r\n from the end of buffer.
@@ -523,6 +525,8 @@ class Request
                             $tmp_upload_dir = HTTP::uploadTmpDir();
                             if (!$tmp_upload_dir) {
                                 $error = UPLOAD_ERR_NO_TMP_DIR;
+                            } else if ($boundary_value === '') {
+                                $error = UPLOAD_ERR_NO_FILE;
                             } else {
                                 $tmp_file = \tempnam($tmp_upload_dir, 'workerman.upload.');
                                 if ($tmp_file === false || false == \file_put_contents($tmp_file, $boundary_value)) {
@@ -538,14 +542,16 @@ class Request
                                 'name'     => $match[2],
                                 'tmp_name' => $tmp_file,
                                 'size'     => $size,
-                                'error'    => $error
+                                'error'    => $error,
+                                'type'     => null,
                             );
                             break;
                         } // Is post field.
                         else {
                             // Parse $_POST.
                             if (\preg_match('/name="(.*?)"$/', $header_value, $match)) {
-                                $this->_data['post'][$match[1]] = $boundary_value;
+                                $key = $match[1];
+                                $post_str .= \urlencode($key)."=".\urlencode($boundary_value).'&';
                             }
                         }
                         break;
@@ -562,13 +568,16 @@ class Request
         foreach ($files as $file) {
             $key = $file['key'];
             unset($file['key']);
-            // Multi files
-            if (\strlen($key) > 2 && \substr($key, -2) == '[]') {
-                $key = \substr($key, 0, -2);
-                $this->_data['files'][$key][] = $file;
-            } else {
-                $this->_data['files'][$key] = $file;
-            }
+            $str = \urlencode($key)."=1";
+            $result = [];
+            \parse_str($str, $result);
+            \array_walk_recursive($result, function(&$value) use ($file) {
+                $value = $file;
+            });
+            $this->_data['files'] = \array_merge($this->_data['files'], $result);
+        }
+        if ($post_str) {
+            parse_str($post_str, $this->_data['post']);
         }
     }
 
@@ -644,16 +653,13 @@ class Request
     {
         if (isset($this->_data['files'])) {
             \clearstatcache();
-            foreach ($this->_data['files'] as $items) {
-                if (!\is_array(\current($items))) {
-                    $items = [$items];
-                }
-                foreach ($items as $item) {
-                    if (\is_file($item['tmp_name'])) {
-                        \unlink($item['tmp_name']);
+            \array_walk_recursive($this->_data['files'], function($value, $key){
+                if ($key === 'tmp_name') {
+                    if (\is_file($value)) {
+                        \unlink($value);
                     }
                 }
-            }
+            });
         }
     }
 }

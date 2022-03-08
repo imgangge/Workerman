@@ -156,7 +156,7 @@ class Response
     ) {
         $this->_status = $status;
         $this->_header = $headers;
-        $this->_body = $body;
+        $this->_body = (string)$body;
     }
 
     /**
@@ -189,7 +189,7 @@ class Response
      * @return $this
      */
     public function withHeaders($headers) {
-        $this->_header = \array_merge($this->_header, $headers);
+        $this->_header = \array_merge_recursive($this->_header, $headers);
         return $this;
     }
     
